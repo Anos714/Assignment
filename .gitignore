@@ -1,0 +1,31 @@
+# =========================
+# FRONTEND
+# =========================
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# =========================
+# DJANGO
+# =========================
+backend-django/.env
+backend-django/db.sqlite3
+backend-django/media/
+backend-django/staticfiles/
+backend-django/__pycache__/
+backend-django/**/*.pyc
+
+# =========================
+# FASTAPI
+# =========================
+ai-service-fastapi/.env
+ai-service-fastapi/__pycache__/
+ai-service-fastapi/**/*.pyc
+
+# =========================
+# GENERAL
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
