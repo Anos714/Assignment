@@ -74,12 +74,24 @@ Response:
 {
   "id": "uuid",
   "filename": "contract.pdf",
+  "original_filename": "contract.pdf",
   "file_type": "pdf",
+  "mime_type": "application/pdf",
   "status": "queued",
   "file_size": 123456,
+  "chunk_count": 0,
+  "error_message": "",
   "created_at": "2026-05-12T07:15:00Z"
 }
 ```
+
+Upload implementation notes:
+
+- The frontend uploads files to Django only.
+- Django validates type and size.
+- Django uploads the original file to Cloudinary as a public raw asset.
+- Django stores `cloudinary_secure_url` internally and sends it to FastAPI for ingestion.
+- Cloudinary API secrets are never exposed to the frontend.
 
 ### List Documents
 
@@ -93,8 +105,13 @@ Response:
     {
       "id": "uuid",
       "filename": "contract.pdf",
+      "original_filename": "contract.pdf",
+      "file_type": "pdf",
+      "mime_type": "application/pdf",
       "status": "ready",
+      "file_size": 123456,
       "chunk_count": 42,
+      "error_message": "",
       "created_at": "2026-05-12T07:15:00Z"
     }
   ]
@@ -217,10 +234,15 @@ The FastAPI service should be private to the backend network.
 {
   "document_id": "uuid",
   "user_id": "uuid",
-  "storage_key": "documents/user-id/document-id.pdf",
-  "file_type": "pdf"
+  "filename": "contract.pdf",
+  "file_url": "https://res.cloudinary.com/.../raw/upload/contract.pdf",
+  "storage_key": "https://res.cloudinary.com/.../raw/upload/contract.pdf",
+  "file_type": "pdf",
+  "mime_type": "application/pdf"
 }
 ```
+
+When `file_url` is present, FastAPI downloads the remote Cloudinary file to `/tmp/documindai_ingest/`, extracts it, stores chunks/vectors in Neon, and deletes the temp file. When `file_url` is absent, FastAPI falls back to local `storage_key` for local development.
 
 ### Ask RAG
 
@@ -237,4 +259,3 @@ The FastAPI service should be private to the backend network.
 ```
 
 Response shape should match the public chat answer payload so Django can store and forward it.
-

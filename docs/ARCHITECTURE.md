@@ -2,97 +2,170 @@
 
 ## Goal
 
-Build a scalable RAG application where each user can upload PDF, DOCX, or TXT files, ask questions, and receive answers that are strictly grounded in retrieved document chunks. If retrieval cannot support an answer, the system must warn the user instead of guessing.
+DocuMind AI lets authenticated users upload PDF, DOCX, and TXT files, ask questions over selected sources, and receive grounded answers with citations. The production deployment separates the frontend, Django API, and FastAPI RAG service, so shared file storage is handled through Cloudinary rather than local container filesystems.
 
-## High-Level System
+## Production Deployment
 
 ```mermaid
 flowchart LR
-    U[User] --> FE[React + Tailwind Frontend]
-    FE --> API[Django REST API]
-    API --> DB[(PostgreSQL + pgvector)]
-    API --> Redis[(Redis Cache)]
-    API --> Store[(Object Storage)]
-    API --> Worker[Celery Worker]
-    Worker --> RAG[FastAPI RAG Service]
-    RAG --> DB
-    RAG --> Redis
-    RAG --> LLM[LLM Provider]
-    RAG --> Embed[Embedding Model]
-    API --> RAG
+    User[User] --> Vercel[Vercel React Frontend]
+    Vercel --> Django[Render Django API]
+    Django --> Cloudinary[(Cloudinary Raw Files)]
+    Django --> Neon[(Neon PostgreSQL + pgvector)]
+    Django --> Upstash[(Upstash Redis)]
+    Django --> RAG[Render FastAPI RAG Service]
+    RAG --> Cloudinary
+    RAG --> Neon
+    RAG --> Upstash
+    RAG --> Gemini[Gemini LLM]
 ```
 
 ## Service Responsibilities
 
-| Service | Responsibility |
-| --- | --- |
-| React frontend | Auth screens, document upload, ingestion status, chat, citations, dashboard |
-| Django REST API | User auth, permissions, file validation, document metadata, chat sessions, audit records |
-| FastAPI RAG service | Text extraction, chunking, embeddings, vector retrieval, grounded generation |
-| Celery worker | Long-running document ingestion and embedding jobs |
-| PostgreSQL + pgvector | Users, documents, chunks, chats, messages, citations, vector search |
-| Redis | Query cache, retrieval cache, dashboard stats cache, Celery broker |
-| Object storage | Original uploaded files |
+| Service | Hosted on | Responsibility |
+| --- | --- | --- |
+| React frontend | Vercel | Landing page, auth UI, uploads, dashboard, sidebar stats, chat, citations |
+| Django REST API | Render | Auth, permissions, Cloudinary uploads, document metadata, chat APIs, dashboard stats |
+| FastAPI RAG service | Render | Remote file download, extraction, chunking, embeddings, retrieval, grounded generation |
+| PostgreSQL + pgvector | Neon | Users, documents, chunks, chats, messages, citations, vector search |
+| Redis | Upstash | Retrieval/answer cache and task infrastructure |
+| Cloudinary | Cloudinary | Shared raw storage for uploaded PDF/DOCX/TXT files |
+| Gemini | Google AI | Provider-backed answer generation when configured |
 
-## Main User Flows
-
-### Document Upload And Ingestion
+## Document Upload And Ingestion
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant FE as React
-    participant API as Django API
-    participant Store as Object Storage
-    participant W as Celery Worker
-    participant RAG as FastAPI RAG
-    participant DB as PostgreSQL
+    participant FE as Vercel Frontend
+    participant API as Render Django API
+    participant C as Cloudinary
+    participant RAG as Render FastAPI RAG
+    participant DB as Neon PostgreSQL
 
-    User->>FE: Upload file
-    FE->>API: POST /documents
-    API->>API: Validate type, size, ownership
-    API->>Store: Save original file
-    API->>DB: Create document status=queued
-    API->>W: Enqueue ingestion job
-    W->>RAG: Extract, chunk, embed
-    RAG->>DB: Store chunks + vectors
-    W->>DB: Mark document ready or failed
-    FE->>API: Poll document status
+    User->>FE: Upload PDF/DOCX/TXT
+    FE->>API: POST /api/documents/
+    API->>API: Validate extension and size
+    API->>C: Upload raw file, public access
+    C-->>API: secure_url, public_id, resource_type
+    API->>DB: Create Document status=queued
+    API->>RAG: POST /internal/ingest with file_url=secure_url
+    RAG->>C: Download secure_url
+    RAG->>RAG: Extract text, chunk, embed
+    RAG->>DB: Replace document chunks and vectors
+    RAG-->>API: ready + chunk_count
+    API->>DB: Update Document status/chunk_count
 ```
 
-### Grounded Question Answering
+Important details:
+
+- Django uploads to Cloudinary with `resource_type="raw"`, `type="upload"`, `access_mode="public"`, `use_filename=True`, and `unique_filename=True`.
+- Django stores `cloudinary_secure_url` and also sets `storage_key` to that secure URL.
+- FastAPI receives `file_url` and downloads it into `/tmp/documindai_ingest/`.
+- FastAPI deletes downloaded temp files after ingestion.
+- If `file_url` is absent, FastAPI falls back to local `storage_key` ingestion for local development.
+
+## Grounded Question Answering
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant FE as React
-    participant API as Django API
-    participant Redis
-    participant RAG as FastAPI RAG
-    participant DB as PostgreSQL
-    participant LLM
+    participant FE as Vercel Frontend
+    participant API as Render Django API
+    participant RAG as Render FastAPI RAG
+    participant DB as Neon PostgreSQL
+    participant Redis as Upstash Redis
+    participant LLM as Gemini
 
     User->>FE: Ask question
-    FE->>API: POST /chats/{id}/messages
-    API->>Redis: Check answer cache
-    alt Cache hit
-        Redis-->>API: Cached grounded answer
-    else Cache miss
-        API->>RAG: Ask with user_id, chat_id, question
-        RAG->>Redis: Check retrieval cache
-        RAG->>DB: Vector search scoped to user/documents
-        RAG->>RAG: Validate support threshold
-        alt Sufficient context
-            RAG->>LLM: Generate answer using only retrieved chunks
-            RAG->>RAG: Verify citations are present
-        else Insufficient context
-            RAG-->>API: Refusal/warning with retrieved evidence
-        end
-        API->>Redis: Cache answer
+    FE->>API: POST /api/chats/{id}/messages/
+    API->>RAG: Ask with user_id, chat_id, question, document_ids
+    RAG->>Redis: Check retrieval cache
+    RAG->>DB: Vector search scoped to user/documents
+    alt Sufficient context
+        RAG->>LLM: Generate grounded answer from retrieved chunks
+        RAG-->>API: Answer + citations
+    else Insufficient context
+        RAG-->>API: Refusal with insufficient_context
     end
-    API->>DB: Store message, answer, citations
-    API-->>FE: Answer + citations + supporting text
+    API->>DB: Store user message, assistant answer, citations
+    API-->>FE: Chat response
 ```
+
+## Data Model Highlights
+
+The `documents_document` table stores both local-development metadata and Cloudinary metadata:
+
+- `filename`
+- `original_filename`
+- `file_type`
+- `mime_type`
+- `file`
+- `storage_key`
+- `cloudinary_public_id`
+- `cloudinary_secure_url`
+- `cloudinary_resource_type`
+- `status`
+- `file_size`
+- `chunk_count`
+- `error_message`
+
+The `documents_documentchunk` table stores extracted chunks and embeddings. In production, Neon PostgreSQL uses `pgvector` for vector search.
+
+## RAG Pipeline
+
+1. Django validates file extension and max size.
+2. Django uploads the original file to Cloudinary as a public raw asset.
+3. Django sends the Cloudinary `secure_url` to FastAPI as `file_url`.
+4. FastAPI downloads the file using `httpx.Client(...).get(...)`.
+5. FastAPI extracts text:
+   - PDF: `pypdf`
+   - DOCX: `python-docx`
+   - TXT: safe text decoding
+6. FastAPI normalizes and chunks text with source metadata.
+7. FastAPI generates embeddings and stores chunks/vectors in Neon.
+8. Questions are embedded, retrieved against user-scoped chunks, and answered with citations.
+
+## Deployment Configuration
+
+### Frontend on Vercel
+
+- Build: Vite React
+- API target: Render Django API
+- Does not store Cloudinary secrets
+
+### Django API on Render
+
+Required services:
+
+- Neon `DATABASE_URL`
+- Upstash Redis URL values
+- Render FastAPI `RAG_SERVICE_URL`
+- Cloudinary credentials
+
+Recommended build command:
+
+```bash
+pip install -r requirements.txt && python manage.py migrate && python manage.py collectstatic --noinput
+```
+
+### FastAPI RAG on Render
+
+Required services:
+
+- Neon `DATABASE_URL`
+- Upstash Redis URL
+- Gemini API key when `LLM_PROVIDER=gemini`
+
+FastAPI does not need Cloudinary secrets. It downloads from the public Cloudinary `secure_url` stored by Django.
+
+## Security Notes
+
+- Cloudinary API secret stays only in Django backend environment variables.
+- The frontend uploads files only to Django, never directly to Cloudinary.
+- Every document, chat, chunk, and citation query is scoped by authenticated user.
+- FastAPI internal endpoints should be treated as backend-only service endpoints.
+- Prompt generation is instructed to answer only from retrieved context.
 
 ## Database Schema
 
@@ -118,8 +191,14 @@ erDiagram
         uuid id PK
         uuid user_id FK
         string filename
+        string original_filename
         string file_type
+        string mime_type
+        string file
         string storage_key
+        string cloudinary_public_id
+        string cloudinary_secure_url
+        string cloudinary_resource_type
         string status
         int file_size
         int chunk_count
@@ -174,77 +253,59 @@ erDiagram
 | --- | --- |
 | `users` | unique email |
 | `documents` | `(user_id, status)`, `(created_at)` |
-| `document_chunks` | `(user_id, document_id)`, vector index on `embedding`, optional full-text index on `content` |
-| `chat_sessions` | `(user_id, updated_at)` |
-| `chat_messages` | `(chat_session_id, created_at)` |
-| `message_citations` | `(message_id)`, `(document_chunk_id)` |
+| `document_chunks` | `(user_id, document_id)`, vector index on `embedding` when pgvector is enabled |
+| `chat_sessions` | user-scoped listing through ownership |
+| `chat_messages` | chat-session message history |
+| `message_citations` | message-to-source attribution |
 
-For local and assignment scope, `pgvector` keeps the architecture simple. For larger scale, vector search can move to OpenSearch, Pinecone, Weaviate, Vertex AI Vector Search, or Amazon OpenSearch Serverless.
-
-## RAG Pipeline
-
-1. Validate file extension, MIME type, and size.
-2. Store original file in object storage.
-3. Extract text:
-   - PDF: `pypdf` or `pdfplumber`
-   - DOCX: `python-docx`
-   - TXT: safe text decode
-4. Normalize text and preserve metadata such as page number and source filename.
-5. Chunk text using token-aware chunking, around 700-1,000 tokens with 100-150 token overlap.
-6. Generate embeddings and store vectors with chunk metadata.
-7. For a question, embed query and retrieve top-k chunks scoped to the authenticated user.
-8. Apply score threshold and optional reranking.
-9. Generate answer with a strict prompt that only allows facts from retrieved chunks.
-10. Return answer, citation IDs, source document names, page numbers, scores, and exact supporting text.
+For the current deployment, Neon PostgreSQL with `pgvector` keeps vector search and relational metadata in one managed database. At larger scale, vector retrieval can move to OpenSearch, Pinecone, Weaviate, Vertex AI Vector Search, or Amazon OpenSearch Serverless.
 
 ## Citation Grounding Rules
 
-- Every factual sentence should be supported by at least one retrieved chunk.
-- The model prompt must instruct the LLM to answer only from supplied context.
-- If retrieved chunks are below the similarity threshold, return `insufficient_context`.
-- If the generated answer lacks citations or introduces unsupported claims, return a warning or regenerate once.
-- The frontend must display citation cards with source filename, page number when available, chunk score, and supporting text.
+- Every factual answer must be supported by retrieved document chunks.
+- The generation prompt instructs the LLM to answer only from supplied context.
+- If retrieved chunks are not strong enough, the API returns `insufficient_context`.
+- The frontend displays citation cards with source filename, page number when available, score, and supporting text.
+- Document text is treated as untrusted context to reduce prompt-injection risk.
 
 ## Caching Strategy
 
 | Cache | Key shape | TTL | Notes |
 | --- | --- | --- | --- |
-| Query answer cache | `answer:{user_id}:{question_hash}:{doc_scope_hash}` | 10-30 min | Stores final answer and citations |
-| Retrieval cache | `retrieval:{user_id}:{query_hash}:{doc_scope_hash}` | 10-30 min | Stores top chunk IDs and scores |
-| Dashboard stats | `dashboard:{user_id}` | 1-5 min | Document count, ready count, chats, questions |
-| Auth/rate limit | `rate:{user_id}:{window}` | window-based | Prevents abuse |
+| Retrieval cache | `retrieval:{user_id}:{query_hash}:{doc_scope_hash}` | Configured by `RETRIEVAL_CACHE_TTL_SECONDS` | Stores retrieval/answer payloads in Redis-compatible cache |
+| Dashboard stats | dashboard query cache | short-lived | Invalidated on upload/delete/chat activity |
+| Auth/rate limit | future extension | window-based | Can be layered on Upstash Redis |
 
-Cache invalidation happens when a user uploads, deletes, or reprocesses a document. The document scope hash should change when the user knowledge base changes.
+Cache invalidation happens when users upload, delete, or reprocess documents, and when chat/session data changes. The document scope changes with selected document IDs, so retrieval remains user-scoped.
 
 ## Scalability Plan
 
-- Separate user-facing API from AI inference so uploads and chat APIs do not block on embedding or LLM latency.
-- Run ingestion asynchronously through Celery workers.
-- Keep object files outside the API container in S3/GCS-compatible storage.
-- Store document and chat metadata relationally, with indexes scoped by `user_id`.
-- Use vector indexes and metadata filtering for fast tenant-scoped retrieval.
-- Add Redis caching for repeated queries, retrieval results, dashboard stats, and rate limits.
-- Make workers horizontally scalable by processing independent document jobs.
-- Make FastAPI stateless so it can scale behind a load balancer.
-- Use idempotent ingestion jobs so retries do not duplicate chunks.
-- Add observability around ingestion duration, retrieval latency, cache hit rate, LLM failures, and citation rejection rate.
+- Keep Vercel frontend separate from backend APIs.
+- Keep Django API separate from FastAPI RAG service so chat/upload APIs do not block on extraction or model latency.
+- Keep uploaded files outside service containers through Cloudinary shared storage.
+- Use Neon indexes and pgvector for tenant-scoped retrieval.
+- Use Upstash Redis for cache and task infrastructure.
+- Make FastAPI stateless aside from `/tmp` ingestion files that are deleted after processing.
+- Make ingestion idempotent by replacing chunks for a document during re-ingestion.
+- Add structured logs around Cloudinary upload, remote download, extraction, chunk count, retrieval latency, and LLM failures.
+- Move to dedicated worker queues if document volume grows beyond the current background/eager ingestion setup.
 
-## Local Container Architecture
+## Local Development Architecture
 
 ```mermaid
 flowchart TB
-    FE[frontend container] --> API[django-api container]
-    API --> PG[(postgres + pgvector)]
-    API --> REDIS[(redis)]
-    API --> RAG[rag-service container]
-    API --> MEDIA[(local media volume)]
-    WORKER[celery-worker container] --> API
-    WORKER --> RAG
-    WORKER --> PG
-    WORKER --> REDIS
+    FE[frontend dev server] --> API[Django API]
+    API --> DB[(SQLite or PostgreSQL)]
+    API --> REDIS[(local Redis or Upstash)]
+    API --> RAG[FastAPI RAG Service]
+    API --> MEDIA[(local media folder)]
+    RAG --> MEDIA
+    RAG --> DB
 ```
 
-## AWS Architecture
+Local development can work without Cloudinary credentials. When Cloudinary is not configured, Django saves the local `file` field and FastAPI resolves `storage_key` under `DOCUMENT_STORAGE_ROOT`.
+
+## AWS Alternative Architecture
 
 ```mermaid
 flowchart LR
@@ -252,16 +313,15 @@ flowchart LR
     CF --> S3FE[S3 Static React App]
     CF --> ALB[Application Load Balancer]
     ALB --> ECSAPI[ECS/EKS Django API]
-    ECSAPI --> RDS[(RDS PostgreSQL)]
+    ECSAPI --> RDS[(RDS PostgreSQL + pgvector)]
     ECSAPI --> Redis[(ElastiCache Redis)]
     ECSAPI --> S3Files[(S3 Documents)]
     ECSAPI --> SQS[SQS Queue]
-    SQS --> ECSWorker[ECS/EKS Celery Workers]
-    ECSWorker --> Bedrock[Amazon Bedrock Embeddings/LLM]
-    ECSWorker --> Vector[OpenSearch Serverless Vector Search or pgvector]
+    SQS --> ECSWorker[ECS/EKS Workers]
     ECSAPI --> RAG[ECS/EKS FastAPI RAG Service]
-    RAG --> Bedrock
-    RAG --> Vector
+    RAG --> S3Files
+    RAG --> RDS
+    RAG --> Bedrock[Amazon Bedrock]
 ```
 
 Recommended AWS services:
@@ -269,11 +329,10 @@ Recommended AWS services:
 - Frontend: S3 + CloudFront
 - API services: ECS Fargate for simpler operations, EKS if Kubernetes is required
 - Database: RDS PostgreSQL with `pgvector`
-- Vector search: start with RDS `pgvector`; use OpenSearch Serverless for larger data and dedicated vector retrieval
 - Cache: ElastiCache Redis
-- File storage: S3 with private buckets and pre-signed upload/download if needed
-- Queue: SQS or Redis broker; SQS is better for production durability
-- AI: Amazon Bedrock for embeddings and generation
+- File storage: S3 with signed URLs or private object access
+- Queue: SQS or Redis broker
+- AI: Amazon Bedrock for embeddings/generation
 - Secrets: AWS Secrets Manager
 - Observability: CloudWatch, X-Ray, structured logs
 
@@ -282,67 +341,61 @@ Recommended AWS services:
 ```mermaid
 flowchart LR
     User --> LB[Cloud Load Balancer]
-    LB --> FE[Cloud Storage/Firebase Hosting React App]
+    LB --> FE[Firebase Hosting or Cloud Storage]
     LB --> API[Cloud Run Django API]
-    API --> SQL[(Cloud SQL PostgreSQL)]
+    API --> SQL[(Cloud SQL PostgreSQL + pgvector)]
     API --> Cache[(Memorystore Redis)]
     API --> GCS[(Cloud Storage Documents)]
     API --> Tasks[Cloud Tasks or Pub/Sub]
     Tasks --> Worker[Cloud Run Jobs/Workers]
-    Worker --> Vertex[Vertex AI Embeddings/LLM]
-    Worker --> VSearch[Vertex AI Vector Search or pgvector]
     API --> RAG[Cloud Run FastAPI RAG Service]
-    RAG --> Vertex
-    RAG --> VSearch
+    RAG --> GCS
+    RAG --> SQL
+    RAG --> Vertex[Vertex AI / Gemini]
 ```
 
 Recommended GCP services:
 
 - Frontend: Firebase Hosting or Cloud Storage behind Cloud CDN
 - API services: Cloud Run for Django and FastAPI
-- Database: Cloud SQL PostgreSQL
-- Vector search: Vertex AI Vector Search for scale, or `pgvector` in Cloud SQL for assignment scope
+- Database: Cloud SQL PostgreSQL with `pgvector`, or managed vector search for larger scale
 - Cache: Memorystore Redis
 - File storage: Cloud Storage
-- Queue: Cloud Tasks for job dispatch or Pub/Sub for event-driven ingestion
-- AI: Vertex AI embeddings and Gemini models
+- Queue: Cloud Tasks or Pub/Sub
+- AI: Vertex AI/Gemini for embeddings and generation
 - Secrets: Secret Manager
 - Observability: Cloud Logging, Cloud Trace, Error Reporting
 
-## Security And Production Practices
+## Production Practices
 
-- JWT or session authentication with protected APIs.
-- Per-user authorization on every document, chat, and chunk lookup.
-- File type, MIME, size, and content validation before ingestion.
-- Private object storage with signed URLs if direct access is needed.
-- Rate limits on auth, upload, and chat endpoints.
-- Prompt injection defense by treating document text as untrusted context.
-- Secrets stored in environment variables locally and managed secret stores in cloud.
-- Structured logs with request IDs across Django, worker, and FastAPI.
-- Tests for auth boundaries, file validation, chunking, retrieval filtering, and insufficient-context responses.
+- JWT authentication with protected APIs.
+- Per-user authorization on documents, chunks, chats, and citations.
+- File extension, MIME, size, and content validation before ingestion.
+- Cloudinary credentials only in Django backend env vars.
+- Render/Vercel/Neon/Upstash secrets managed through platform environment variables.
+- CORS restricted to deployed frontend domains.
+- FastAPI internal endpoints should not be exposed as public user-facing APIs.
+- Tests cover auth boundaries, file validation, chunking, retrieval filtering, Cloudinary metadata, and insufficient-context responses.
 
 ## Suggested Repository Structure
 
 ```text
 .
-├── backend/
+├── frontend/
+│   └── src/
+├── backend-django/
 │   ├── config/
 │   ├── accounts/
 │   ├── documents/
 │   ├── chats/
-│   └── common/
-├── rag_service/
+│   └── dashboard/
+├── ai-service-fastapi/
 │   ├── app/
-│   │   ├── extraction/
-│   │   ├── chunking/
-│   │   ├── embeddings/
-│   │   ├── retrieval/
-│   │   └── generation/
+│   │   ├── api/
+│   │   ├── core/
+│   │   ├── db/
+│   │   └── rag/
 │   └── tests/
-├── frontend/
-│   └── src/
 ├── docs/
-├── docker-compose.yml
 └── README.md
 ```
-
