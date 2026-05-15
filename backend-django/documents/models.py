@@ -20,8 +20,9 @@ class Document(models.Model):
     file = models.FileField(upload_to="documents/%Y/%m/%d/")
     storage_key = models.CharField(max_length=512)
     cloudinary_public_id = models.CharField(max_length=512, blank=True)
-    cloudinary_secure_url = models.URLField(max_length=2048, blank=True)
-    cloudinary_resource_type = models.CharField(max_length=24, blank=True)
+    cloudinary_secure_url = models.URLField(max_length=1000, blank=True)
+    cloudinary_resource_type = models.CharField(max_length=50, blank=True)
+    mime_type = models.CharField(max_length=120, blank=True)
     status = models.CharField(
         max_length=20,
         choices=DocumentStatus.choices,

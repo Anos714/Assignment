@@ -15,12 +15,17 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="document",
             name="cloudinary_resource_type",
-            field=models.CharField(blank=True, max_length=24),
+            field=models.CharField(blank=True, max_length=50),
         ),
         migrations.AddField(
             model_name="document",
             name="cloudinary_secure_url",
-            field=models.URLField(blank=True, max_length=2048),
+            field=models.URLField(blank=True, max_length=1000),
+        ),
+        migrations.AddField(
+            model_name="document",
+            name="mime_type",
+            field=models.CharField(blank=True, max_length=120),
         ),
         migrations.AddField(
             model_name="document",

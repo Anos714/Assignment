@@ -70,4 +70,4 @@ class DocumentApiTests(TestCase):
         self.assertEqual(payload["filename"], "source.txt")
         self.assertEqual(payload["storage_key"], "documents/source.txt")
         self.assertEqual(payload["file_url"], "")
-        self.assertIsNone(payload["mime_type"])
+        self.assertEqual(payload["mime_type"], "")
