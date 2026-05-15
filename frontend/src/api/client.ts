@@ -12,7 +12,7 @@ import type {
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api";
-const RAG_BASE_URL = import.meta.env.VITE_RAG_BASE_URL ?? "http://127.0.0.1:8001";
+const RAG_BASE_URL = import.meta.env.VITE_RAG_BASE_URL ?? "/rag";
 
 export class ApiError extends Error {
   status: number;
@@ -34,10 +34,15 @@ async function request<T>(path: string, options: RequestInit = {}, baseUrl = API
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    throw new ApiError("API server is not reachable. Please start the backend service and try again.", 0, error);
+  }
 
   if (!response.ok) {
     let payload: unknown = null;
