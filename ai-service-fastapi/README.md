@@ -22,6 +22,14 @@ DOCUMENT_STORAGE_ROOT=../backend-django/media
 REDIS_URL=redis://localhost:6379/0
 ```
 
+For Gemini-backed answers, keep the key in `.env` and set:
+
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-key
+GEMINI_MODEL=gemini-2.5-flash
+```
+
 ## Run
 
 ```bash
@@ -39,4 +47,3 @@ REDIS_URL=redis://localhost:6379/0
 - `GET /health`
 - `POST /internal/ingest`
 - `POST /internal/ask`
-

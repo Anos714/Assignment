@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_embedding_model: str = Field(default="text-embedding-3-small", alias="OPENAI_EMBEDDING_MODEL")
     openai_chat_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_CHAT_MODEL")
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
     use_pgvector: bool = Field(default=False, alias="USE_PGVECTOR")
     chunk_token_size: int = Field(default=900, alias="CHUNK_TOKEN_SIZE")
     chunk_token_overlap: int = Field(default=120, alias="CHUNK_TOKEN_OVERLAP")

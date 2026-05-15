@@ -1,20 +1,47 @@
+import { useState } from "react";
+
 type LandingPageProps = {
   onOpenAuth: (mode: "login" | "signup") => void;
 };
 
 export function LandingPage({ onOpenAuth }: LandingPageProps) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  function openAuth(mode: "login" | "signup") {
+    setIsMenuOpen(false);
+    onOpenAuth(mode);
+  }
+
   return (
     <main className="auth-screen">
       <header className="landing-nav">
-        <a className="landing-brand" href="#top" aria-label="Veridian home">
-          <span className="brand-mark">V</span>
-          <span>Veridian RAG</span>
+        <a className="landing-brand" href="#top" aria-label="DocuMind AI home">
+          <span className="brand-mark">D</span>
+          <span>DocuMind AI</span>
         </a>
-        <nav aria-label="Landing">
-          <a href="#how-it-works">How it works</a>
-          <a href="#use-cases">Use cases</a>
-          <a href="#faq">FAQ</a>
-          <button className="nav-auth-button" onClick={() => onOpenAuth("login")} type="button">
+        <button
+          aria-controls="landing-menu"
+          aria-expanded={isMenuOpen}
+          aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+          className={isMenuOpen ? "hamburger-button open" : "hamburger-button"}
+          onClick={() => setIsMenuOpen((isOpen) => !isOpen)}
+          type="button"
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+        <nav className={isMenuOpen ? "open" : ""} id="landing-menu" aria-label="Landing">
+          <a href="#how-it-works" onClick={() => setIsMenuOpen(false)}>
+            How it works
+          </a>
+          <a href="#use-cases" onClick={() => setIsMenuOpen(false)}>
+            Use cases
+          </a>
+          <a href="#faq" onClick={() => setIsMenuOpen(false)}>
+            FAQ
+          </a>
+          <button className="nav-auth-button" onClick={() => openAuth("login")} type="button">
             Sign in
           </button>
         </nav>

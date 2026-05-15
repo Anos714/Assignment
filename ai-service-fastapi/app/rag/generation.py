@@ -70,10 +70,14 @@ def build_grounded_answer(question: str, retrieved: list[RetrievedChunk]) -> tup
         )
         for item, sentence in selected
     ]
-    if settings.llm_provider == "openai" and settings.openai_api_key:
-        answer = _openai_grounded_answer(question, citations)
-    else:
-        answer = " ".join(sentence for _, sentence in selected)
+    answer = " ".join(sentence for _, sentence in selected)
+    try:
+        if settings.llm_provider == "gemini" and settings.gemini_api_key:
+            answer = _gemini_grounded_answer(question, citations)
+        elif settings.llm_provider == "openai" and settings.openai_api_key:
+            answer = _openai_grounded_answer(question, citations)
+    except Exception:
+        pass
     return answer, citations
 
 
@@ -93,18 +97,7 @@ def _best_sentence(content: str, question_terms: set[str]) -> str:
 
 
 def _openai_grounded_answer(question: str, citations: list[Citation]) -> str:
-    context = "\n\n".join(
-        f"[{index + 1}] {citation.document_name}"
-        f"{f' page {citation.page_number}' if citation.page_number else ''}: "
-        f"{citation.supporting_text}"
-        for index, citation in enumerate(citations)
-    )
-    prompt = (
-        "Answer only using the supplied context. "
-        "If the context is insufficient, say you could not find enough supporting information. "
-        "Keep the answer concise and do not invent facts.\n\n"
-        f"Question: {question}\n\nContext:\n{context}"
-    )
+    prompt = _build_grounded_prompt(question, citations)
     request = Request(
         "https://api.openai.com/v1/chat/completions",
         data=json.dumps(
@@ -123,3 +116,48 @@ def _openai_grounded_answer(question: str, citations: list[Citation]) -> str:
     with urlopen(request, timeout=60) as response:
         payload = json.loads(response.read().decode("utf-8"))
     return payload["choices"][0]["message"]["content"].strip()
+
+
+def _gemini_grounded_answer(question: str, citations: list[Citation]) -> str:
+    prompt = _build_grounded_prompt(question, citations)
+    request = Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
+        data=json.dumps(
+            {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": prompt}],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0,
+                },
+            }
+        ).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": settings.gemini_api_key or "",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=60) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    parts = payload["candidates"][0]["content"]["parts"]
+    return "".join(part.get("text", "") for part in parts).strip()
+
+
+def _build_grounded_prompt(question: str, citations: list[Citation]) -> str:
+    context = "\n\n".join(
+        f"[{index + 1}] {citation.document_name}"
+        f"{f' page {citation.page_number}' if citation.page_number else ''}: "
+        f"{citation.supporting_text}"
+        for index, citation in enumerate(citations)
+    )
+    prompt = (
+        "Answer only using the supplied context. "
+        "If the context is insufficient, say you could not find enough supporting information. "
+        "Keep the answer concise and do not invent facts.\n\n"
+        f"Question: {question}\n\nContext:\n{context}"
+    )
+    return prompt

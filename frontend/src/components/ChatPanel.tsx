@@ -7,6 +7,7 @@ type ChatPanelProps = {
   isAsking?: boolean;
   isLoading?: boolean;
   messages: ChatMessage[];
+  pendingQuestion?: string;
   question: string;
   selectedCount: number;
   suggestedQuestions: string[];
@@ -19,6 +20,7 @@ export function ChatPanel({
   isAsking,
   isLoading,
   messages,
+  pendingQuestion,
   question,
   selectedCount,
   suggestedQuestions,
@@ -42,19 +44,36 @@ export function ChatPanel({
       </div>
 
       <div className="messages" aria-live="polite">
-        {isLoading && <p className="muted-text">Loading messages...</p>}
-        {!isLoading && messages.length === 0 && (
-          <p className="muted-text">Ask a question once your documents are ready.</p>
+        {isLoading && <MessageSkeletonList />}
+        {!isLoading && messages.length === 0 && !pendingQuestion && (
+          <div className="empty-state">
+            <strong>No messages yet</strong>
+            <p>Ask a question once your documents are ready. Answers will stay grounded in selected sources.</p>
+          </div>
         )}
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
+        {pendingQuestion && (
+          <article className="message user-message pending-message">
+            <div className="message-meta">
+              <strong>You</strong>
+              <span className="scope-pill">Sending</span>
+            </div>
+            <p>{pendingQuestion}</p>
+          </article>
+        )}
         {isAsking && (
-          <article className="message assistant-message">
+          <article className="message assistant-message typing-message">
             <div className="message-meta">
               <strong>Assistant</strong>
             </div>
-            <p>Retrieving grounded context...</p>
+            <div className="typing-row" aria-label="Assistant is thinking">
+              <span />
+              <span />
+              <span />
+              <p>Retrieving grounded context</p>
+            </div>
           </article>
         )}
       </div>
@@ -71,5 +90,21 @@ export function ChatPanel({
         </button>
       </form>
     </div>
+  );
+}
+
+function MessageSkeletonList() {
+  return (
+    <>
+      <article className="message assistant-message skeleton-message">
+        <span className="skeleton-line short" />
+        <span className="skeleton-line" />
+        <span className="skeleton-line wide" />
+      </article>
+      <article className="message user-message skeleton-message">
+        <span className="skeleton-line short" />
+        <span className="skeleton-line wide" />
+      </article>
+    </>
   );
 }

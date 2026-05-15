@@ -1,7 +1,9 @@
 from uuid import uuid4
+from unittest.mock import Mock
 
 from app.rag.chunking import SourcePage, chunk_pages
 from app.rag.embeddings import embed_text
+from app.core.settings import settings
 from app.rag.generation import build_grounded_answer
 from app.rag.service import RagService
 from app.rag.retrieval import StoredChunk, rank_chunks
@@ -43,6 +45,41 @@ def test_embedding_retrieval_and_grounded_answer():
     assert "terminates" in answer
     assert citations[0].document_id == document_id
     assert citations[0].supporting_text
+
+
+def test_gemini_grounded_answer_uses_provider(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "gemini")
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(settings, "gemini_model", "gemini-test")
+
+    response = Mock()
+    response.read.return_value = (
+        b'{"candidates":[{"content":{"parts":[{"text":"Gemini answer from context."}]}}]}'
+    )
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=None)
+    monkeypatch.setattr("app.rag.generation.urlopen", Mock(return_value=response))
+
+    document_id = uuid4()
+    chunk = StoredChunk(
+        id=uuid4(),
+        document_id=document_id,
+        document_name="contract.txt",
+        page_number=1,
+        content="The contract terminates after thirty days written notice.",
+        embedding=embed_text("termination thirty days written notice", 64),
+    )
+    retrieved = rank_chunks(
+        query_embedding=embed_text("How does termination work?", 64),
+        chunks=[chunk],
+        top_k=1,
+        threshold=-1.0,
+    )
+
+    answer, citations = build_grounded_answer("How does termination work?", retrieved)
+
+    assert answer == "Gemini answer from context."
+    assert citations[0].document_id == document_id
 
 
 def test_ask_falls_back_to_available_chunks_when_threshold_filters_everything():

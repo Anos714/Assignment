@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
 import { ChatPanel } from "./ChatPanel";
@@ -12,6 +12,7 @@ import {
   useChats,
   useCreateChatMutation,
   useCurrentUser,
+  useDashboardStats,
   useDeleteDocumentMutation,
   useDocuments,
   useUploadDocumentMutation,
@@ -26,6 +27,9 @@ const suggestedQuestions = [
 
 export function DashboardPage() {
   const queryClient = useQueryClient();
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pendingQuestion, setPendingQuestion] = useState("");
   const activeChatId = useAppStore((state) => state.activeChatId);
   const clearSession = useAppStore((state) => state.clearSession);
   const questionDraft = useAppStore((state) => state.questionDraft);
@@ -36,6 +40,7 @@ export function DashboardPage() {
   const toggleDocument = useAppStore((state) => state.toggleDocument);
 
   const meQuery = useCurrentUser();
+  const statsQuery = useDashboardStats();
   const documentsQuery = useDocuments();
   const chatsQuery = useChats();
   const chatQuery = useChat(activeChatId);
@@ -86,41 +91,56 @@ export function DashboardPage() {
       return;
     }
     setQuestionDraft("");
+    setPendingQuestion(question);
     try {
       await askQuestionMutation.mutateAsync({
         question,
         documentIds: scopedDocumentIds,
       });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.chat(activeChatId) });
     } catch {
       setQuestionDraft(question);
+    } finally {
+      setPendingQuestion("");
     }
   }
 
-  function handleRefresh() {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.stats });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.documents });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.chats });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.ragHealth });
-    if (activeChatId) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.chat(activeChatId) });
+  async function handleRefresh() {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.me }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.stats }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.documents }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.chats }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.ragHealth }),
+        activeChatId
+          ? queryClient.invalidateQueries({ queryKey: queryKeys.chat(activeChatId) })
+          : Promise.resolve(),
+      ]);
+    } finally {
+      setIsRefreshing(false);
     }
   }
 
   return (
-    <main className="app-shell">
+    <main className={isSidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
       <Sidebar
         activeChatId={activeChatId}
         chats={chats}
+        isCollapsed={isSidebarCollapsed}
         isCreatingChat={createChatMutation.isPending}
         onCreateChat={handleCreateChat}
         onLogout={handleLogout}
         onSelectChat={setActiveChatId}
+        onToggleCollapse={() => setIsSidebarCollapsed((isCollapsed) => !isCollapsed)}
+        stats={statsQuery.data}
+        statsLoading={statsQuery.isLoading}
         user={meQuery.data}
       />
 
       <section className="workspace" id="workspace">
-        <Topbar onRefresh={handleRefresh} />
+        <Topbar isRefreshing={isRefreshing} onRefresh={handleRefresh} />
 
         {(documentsQuery.error || chatsQuery.error || askQuestionMutation.error || uploadDocumentMutation.error) && (
           <div className="error-banner">
@@ -141,6 +161,7 @@ export function DashboardPage() {
             messages={chatQuery.data?.messages ?? []}
             onAsk={handleAsk}
             onQuestionChange={setQuestionDraft}
+            pendingQuestion={pendingQuestion}
             question={questionDraft}
             selectedCount={scopedDocumentIds.length}
             suggestedQuestions={suggestedQuestions}
