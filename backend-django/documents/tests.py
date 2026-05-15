@@ -8,6 +8,7 @@ from documents.models import Document
 from documents.tasks import ingest_document_task
 
 
+@override_settings(CLOUDINARY_CLOUD_NAME="", CLOUDINARY_API_KEY="", CLOUDINARY_API_SECRET="")
 class DocumentApiTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(

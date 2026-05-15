@@ -1,3 +1,4 @@
+import logging
 from uuid import uuid4
 
 from app.core.settings import settings
@@ -11,19 +12,42 @@ from app.rag.retrieval import RetrievedChunk, StoredChunk, rank_chunks
 from app.schemas import AskRequest, AskResponse, IngestRequest, IngestResponse, RetrievalMetadata
 
 
+logger = logging.getLogger(__name__)
+
+
 class RagService:
     def __init__(self, repository: Repository | None = None, cache: Cache | None = None):
         self.repository = repository or Repository()
         self.cache = cache or Cache()
 
     def ingest_document(self, request: IngestRequest) -> IngestResponse:
-        temp_path = None
+        path = None
+        should_cleanup = False
         try:
             self.repository.mark_document_processing(request.document_id, request.user_id)
-            if request.file_url and request.file_url.startswith(("http://", "https://")):
-                path = download_remote_file(request.file_url, filename=request.filename)
-                temp_path = path
+            if request.file_url:
+                logger.info(
+                    "Ingesting document from remote file_url",
+                    extra={
+                        "document_id": str(request.document_id),
+                        "user_id": str(request.user_id),
+                        "document_filename": request.filename,
+                    },
+                )
+                path = download_remote_file(
+                    str(request.file_url),
+                    filename=request.filename or request.storage_key,
+                )
+                should_cleanup = True
             else:
+                logger.info(
+                    "Ingesting document from local storage_key",
+                    extra={
+                        "document_id": str(request.document_id),
+                        "user_id": str(request.user_id),
+                        "storage_key": request.storage_key,
+                    },
+                )
                 path = resolve_storage_path(settings.document_storage_root, request.storage_key)
             pages = extract_pages(path, request.file_type)
             chunks = chunk_pages(
@@ -53,6 +77,14 @@ class RagService:
                 chunk_count=chunk_count,
             )
         except (ExtractionError, DatabaseNotConfigured, ValueError, OSError) as exc:
+            logger.exception(
+                "Document ingestion failed",
+                extra={
+                    "document_id": str(request.document_id),
+                    "user_id": str(request.user_id),
+                    "using_remote_file_url": bool(request.file_url),
+                },
+            )
             self._mark_failed_if_possible(request, str(exc))
             return IngestResponse(
                 document_id=request.document_id,
@@ -61,8 +93,8 @@ class RagService:
                 error_message=str(exc),
             )
         finally:
-            if temp_path:
-                temp_path.unlink(missing_ok=True)
+            if should_cleanup and path:
+                path.unlink(missing_ok=True)
 
     def ask(self, request: AskRequest) -> AskResponse:
         key = retrieval_cache_key(
