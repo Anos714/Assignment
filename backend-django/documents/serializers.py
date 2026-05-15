@@ -90,6 +90,8 @@ def upload_to_cloudinary(uploaded_file, *, user_id) -> dict:
         return cloudinary.uploader.upload(
             uploaded_file,
             resource_type="raw",
+            type="upload",
+            access_mode="public",
             folder=f"documindai/users/{user_id}/documents",
             use_filename=True,
             unique_filename=True,

@@ -67,6 +67,9 @@ class DocumentApiTests(TestCase):
         self.assertEqual(document.cloudinary_resource_type, "raw")
         self.assertEqual(document.mime_type, "text/plain")
         upload.assert_called_once()
+        self.assertEqual(upload.call_args.kwargs["resource_type"], "raw")
+        self.assertEqual(upload.call_args.kwargs["type"], "upload")
+        self.assertEqual(upload.call_args.kwargs["access_mode"], "public")
         self.assertTrue(upload.call_args.kwargs["use_filename"])
         self.assertTrue(upload.call_args.kwargs["unique_filename"])
 
