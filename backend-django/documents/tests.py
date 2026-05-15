@@ -41,6 +41,35 @@ class DocumentApiTests(TestCase):
         self.assertEqual(response.data["file_type"], "txt")
         self.assertEqual(response.data["status"], "queued")
 
+    @override_settings(
+        CLOUDINARY_CLOUD_NAME="demo",
+        CLOUDINARY_API_KEY="key",
+        CLOUDINARY_API_SECRET="secret",
+    )
+    @patch("documents.serializers.cloudinary.uploader.upload")
+    def test_upload_stores_cloudinary_metadata(self, upload):
+        upload.return_value = {
+            "public_id": "documindai/users/user/documents/notes",
+            "secure_url": "https://res.cloudinary.com/demo/raw/upload/notes.txt",
+            "resource_type": "raw",
+        }
+
+        response = self.client.post(
+            "/api/documents/",
+            {"file": SimpleUploadedFile("notes.txt", b"hello", content_type="text/plain")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        document = Document.objects.get(id=response.data["id"])
+        self.assertEqual(document.cloudinary_secure_url, "https://res.cloudinary.com/demo/raw/upload/notes.txt")
+        self.assertEqual(document.storage_key, document.cloudinary_secure_url)
+        self.assertEqual(document.cloudinary_resource_type, "raw")
+        self.assertEqual(document.mime_type, "text/plain")
+        upload.assert_called_once()
+        self.assertTrue(upload.call_args.kwargs["use_filename"])
+        self.assertTrue(upload.call_args.kwargs["unique_filename"])
+
     @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
     @patch("documents.tasks.RagClient.ingest_document")
     def test_ingestion_task_marks_document_ready(self, ingest_document):

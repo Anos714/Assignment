@@ -4,6 +4,8 @@ from datetime import timedelta
 import os
 from pathlib import Path
 
+import cloudinary
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -200,6 +202,12 @@ MAX_DOCUMENT_UPLOAD_BYTES = int(os.getenv("MAX_DOCUMENT_UPLOAD_BYTES", "20971520
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "")
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "")
+cloudinary.config(
+    cloud_name=CLOUDINARY_CLOUD_NAME,
+    api_key=CLOUDINARY_API_KEY,
+    api_secret=CLOUDINARY_API_SECRET,
+    secure=True,
+)
 RAG_SERVICE_URL = os.getenv("RAG_SERVICE_URL", "http://localhost:8001")
 RAG_TIMEOUT_SECONDS = float(os.getenv("RAG_TIMEOUT_SECONDS", "5"))
 

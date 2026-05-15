@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import cloudinary.uploader
 from django.conf import settings
 from rest_framework import serializers
 
@@ -48,30 +49,34 @@ class DocumentUploadSerializer(serializers.ModelSerializer):
         uploaded_file = validated_data["file"]
         extension = Path(uploaded_file.name).suffix.lower().removeprefix(".")
         original_filename = Path(uploaded_file.name).name
-        cloudinary_upload = upload_to_cloudinary_if_configured(
+        cloudinary_upload = upload_to_cloudinary(
             uploaded_file,
             user_id=self.context["request"].user.id,
         )
         uploaded_file.seek(0)
-        document = Document.objects.create(
-            user=self.context["request"].user,
-            filename=original_filename,
-            original_filename=original_filename,
-            file_type=extension,
-            mime_type=getattr(uploaded_file, "content_type", "") or cloudinary_upload.get("format", ""),
-            file=uploaded_file,
-            storage_key="",
-            file_size=uploaded_file.size,
-            cloudinary_public_id=cloudinary_upload.get("public_id", ""),
-            cloudinary_secure_url=cloudinary_upload.get("secure_url", ""),
-            cloudinary_resource_type=cloudinary_upload.get("resource_type", ""),
-        )
-        document.storage_key = document.cloudinary_secure_url or document.file.name
-        document.save(update_fields=("storage_key", "updated_at"))
+        document_data = {
+            "user": self.context["request"].user,
+            "filename": original_filename,
+            "original_filename": original_filename,
+            "file_type": extension,
+            "file": uploaded_file,
+            "storage_key": cloudinary_upload.get("secure_url", ""),
+            "file_size": uploaded_file.size,
+            "cloudinary_public_id": cloudinary_upload.get("public_id", ""),
+            "cloudinary_secure_url": cloudinary_upload.get("secure_url", ""),
+            "cloudinary_resource_type": cloudinary_upload.get("resource_type", "raw") if cloudinary_upload else "",
+        }
+        if has_document_field("mime_type"):
+            document_data["mime_type"] = getattr(uploaded_file, "content_type", "") or cloudinary_upload.get("format", "")
+
+        document = Document.objects.create(**document_data)
+        if not document.storage_key:
+            document.storage_key = document.file.name
+            document.save(update_fields=("storage_key", "updated_at"))
         return document
 
 
-def upload_to_cloudinary_if_configured(uploaded_file, *, user_id) -> dict:
+def upload_to_cloudinary(uploaded_file, *, user_id) -> dict:
     if not all(
         (
             settings.CLOUDINARY_CLOUD_NAME,
@@ -82,19 +87,16 @@ def upload_to_cloudinary_if_configured(uploaded_file, *, user_id) -> dict:
         return {}
 
     try:
-        import cloudinary
-        import cloudinary.uploader
-
-        cloudinary.config(
-            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
-            api_key=settings.CLOUDINARY_API_KEY,
-            api_secret=settings.CLOUDINARY_API_SECRET,
-            secure=True,
-        )
         return cloudinary.uploader.upload(
             uploaded_file,
             resource_type="raw",
             folder=f"documindai/users/{user_id}/documents",
+            use_filename=True,
+            unique_filename=True,
         )
     except Exception as exc:
         raise serializers.ValidationError({"file": f"Could not upload file to Cloudinary: {exc}"}) from exc
+
+
+def has_document_field(field_name: str) -> bool:
+    return any(field.name == field_name for field in Document._meta.fields)
