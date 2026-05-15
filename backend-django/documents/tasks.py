@@ -1,5 +1,4 @@
 import logging
-import mimetypes
 
 from celery import shared_task
 
@@ -22,10 +21,10 @@ def ingest_document_task(self, document_id: str) -> dict:
     document.error_message = ""
     document.save(update_fields=("status", "error_message", "updated_at"))
 
-    filename = document.original_filename or document.filename
-    file_url = document.cloudinary_secure_url or None
+    filename = document.original_filename or document.file.name
+    file_url = document.cloudinary_secure_url
     storage_key = document.cloudinary_secure_url or document.storage_key
-    mime_type = _document_mime_type(document, filename)
+    mime_type = getattr(document, "mime_type", None)
     payload = {
         "document_id": str(document.id),
         "user_id": str(document.user_id),
@@ -73,17 +72,3 @@ def ingest_document_task(self, document_id: str) -> dict:
     document.error_message = response.get("error_message") or ""
     document.save(update_fields=("status", "chunk_count", "error_message", "updated_at"))
     return response
-
-
-def _document_mime_type(document: Document, filename: str) -> str | None:
-    content_type = getattr(getattr(document, "file", None), "content_type", None)
-    if content_type:
-        return content_type
-    guessed_type = mimetypes.guess_type(filename)[0]
-    if guessed_type:
-        return guessed_type
-    return {
-        "pdf": "application/pdf",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "txt": "text/plain",
-    }.get(document.file_type)

@@ -69,4 +69,5 @@ class DocumentApiTests(TestCase):
         payload = ingest_document.call_args.kwargs
         self.assertEqual(payload["filename"], "source.txt")
         self.assertEqual(payload["storage_key"], "documents/source.txt")
-        self.assertIsNone(payload["file_url"])
+        self.assertEqual(payload["file_url"], "")
+        self.assertIsNone(payload["mime_type"])
