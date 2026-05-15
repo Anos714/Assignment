@@ -5,7 +5,7 @@ from app.db.repository import DatabaseNotConfigured, Repository
 from app.rag.cache import Cache, retrieval_cache_key
 from app.rag.chunking import chunk_pages
 from app.rag.embeddings import embed_text
-from app.rag.extraction import ExtractionError, extract_pages, resolve_storage_path
+from app.rag.extraction import ExtractionError, download_remote_file, extract_pages, resolve_storage_path
 from app.rag.generation import DEFAULT_REFUSAL, build_grounded_answer
 from app.rag.retrieval import RetrievedChunk, StoredChunk, rank_chunks
 from app.schemas import AskRequest, AskResponse, IngestRequest, IngestResponse, RetrievalMetadata
@@ -17,15 +17,20 @@ class RagService:
         self.cache = cache or Cache()
 
     def ingest_document(self, request: IngestRequest) -> IngestResponse:
+        temp_path = None
         try:
             self.repository.mark_document_processing(request.document_id, request.user_id)
-            path = resolve_storage_path(settings.document_storage_root, request.storage_key)
+            if request.file_url and request.file_url.startswith(("http://", "https://")):
+                path = download_remote_file(request.file_url, filename=request.filename)
+                temp_path = path
+            else:
+                path = resolve_storage_path(settings.document_storage_root, request.storage_key)
             pages = extract_pages(path, request.file_type)
             chunks = chunk_pages(
                 pages,
                 chunk_size=settings.chunk_token_size,
                 overlap=settings.chunk_token_overlap,
-                filename=path.name,
+                filename=request.filename or path.name,
             )
             embeddings = [
                 embed_text(chunk.content, settings.embedding_dimensions)
@@ -55,6 +60,9 @@ class RagService:
                 chunk_count=0,
                 error_message=str(exc),
             )
+        finally:
+            if temp_path:
+                temp_path.unlink(missing_ok=True)
 
     def ask(self, request: AskRequest) -> AskResponse:
         key = retrieval_cache_key(

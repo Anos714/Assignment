@@ -28,14 +28,27 @@ class RagClient:
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise RagServiceError(str(exc)) from exc
 
-    def ingest_document(self, *, document_id: str, user_id: str, storage_key: str, file_type: str):
+    def ingest_document(
+        self,
+        *,
+        document_id: str,
+        user_id: str,
+        storage_key: str,
+        file_type: str,
+        filename: str | None = None,
+        file_url: str | None = None,
+        mime_type: str | None = None,
+    ):
         return self.post(
             "/internal/ingest",
             {
                 "document_id": document_id,
                 "user_id": user_id,
+                "filename": filename,
+                "file_url": file_url,
                 "storage_key": storage_key,
                 "file_type": file_type,
+                "mime_type": mime_type,
             },
         )
 

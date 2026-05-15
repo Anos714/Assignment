@@ -29,6 +29,7 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "backend-django" / "media",
         alias="DOCUMENT_STORAGE_ROOT",
     )
+    max_document_upload_bytes: int = Field(default=20_971_520, alias="MAX_DOCUMENT_UPLOAD_BYTES")
     embedding_dimensions: int = Field(default=384, alias="EMBEDDING_DIMENSIONS")
     embedding_provider: str = Field(default="hash", alias="EMBEDDING_PROVIDER")
     llm_provider: str = Field(default="extractive", alias="LLM_PROVIDER")

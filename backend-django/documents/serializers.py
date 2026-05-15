@@ -15,6 +15,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "filename",
+            "original_filename",
             "file_type",
             "status",
             "file_size",
@@ -45,15 +46,53 @@ class DocumentUploadSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         uploaded_file = validated_data["file"]
         extension = Path(uploaded_file.name).suffix.lower().removeprefix(".")
+        original_filename = Path(uploaded_file.name).name
+        cloudinary_upload = upload_to_cloudinary_if_configured(
+            uploaded_file,
+            user_id=self.context["request"].user.id,
+        )
+        uploaded_file.seek(0)
         document = Document.objects.create(
             user=self.context["request"].user,
-            filename=Path(uploaded_file.name).name,
+            filename=original_filename,
+            original_filename=original_filename,
             file_type=extension,
             file=uploaded_file,
             storage_key="",
             file_size=uploaded_file.size,
+            cloudinary_public_id=cloudinary_upload.get("public_id", ""),
+            cloudinary_secure_url=cloudinary_upload.get("secure_url", ""),
+            cloudinary_resource_type=cloudinary_upload.get("resource_type", ""),
         )
-        document.storage_key = document.file.name
+        document.storage_key = document.cloudinary_secure_url or document.file.name
         document.save(update_fields=("storage_key", "updated_at"))
         return document
 
+
+def upload_to_cloudinary_if_configured(uploaded_file, *, user_id) -> dict:
+    if not all(
+        (
+            settings.CLOUDINARY_CLOUD_NAME,
+            settings.CLOUDINARY_API_KEY,
+            settings.CLOUDINARY_API_SECRET,
+        )
+    ):
+        return {}
+
+    try:
+        import cloudinary
+        import cloudinary.uploader
+
+        cloudinary.config(
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            api_key=settings.CLOUDINARY_API_KEY,
+            api_secret=settings.CLOUDINARY_API_SECRET,
+            secure=True,
+        )
+        return cloudinary.uploader.upload(
+            uploaded_file,
+            resource_type="raw",
+            folder=f"documindai/users/{user_id}/documents",
+        )
+    except Exception as exc:
+        raise serializers.ValidationError({"file": f"Could not upload file to Cloudinary: {exc}"}) from exc

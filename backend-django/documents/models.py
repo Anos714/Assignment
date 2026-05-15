@@ -15,9 +15,13 @@ class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="documents")
     filename = models.CharField(max_length=255)
+    original_filename = models.CharField(max_length=255, blank=True)
     file_type = models.CharField(max_length=12)
     file = models.FileField(upload_to="documents/%Y/%m/%d/")
     storage_key = models.CharField(max_length=512)
+    cloudinary_public_id = models.CharField(max_length=512, blank=True)
+    cloudinary_secure_url = models.URLField(max_length=2048, blank=True)
+    cloudinary_resource_type = models.CharField(max_length=24, blank=True)
     status = models.CharField(
         max_length=20,
         choices=DocumentStatus.choices,
@@ -63,4 +67,3 @@ class DocumentChunk(models.Model):
         indexes = [
             models.Index(fields=("user", "document")),
         ]
-

@@ -6,8 +6,11 @@ from pydantic import BaseModel, Field
 class IngestRequest(BaseModel):
     document_id: UUID
     user_id: UUID
+    filename: str | None = None
+    file_url: str | None = None
     storage_key: str
     file_type: str
+    mime_type: str | None = None
 
 
 class IngestResponse(BaseModel):

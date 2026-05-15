@@ -7,3 +7,4 @@ celery>=5.5,<5.6
 redis>=6.0,<6.1
 gunicorn>=23.0,<24.0
 whitenoise>=6.8,<7.0
+cloudinary>=1.41.0

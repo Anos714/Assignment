@@ -1,3 +1,5 @@
+import mimetypes
+
 from celery import shared_task
 
 from core.rag_client import RagClient, RagServiceError
@@ -20,8 +22,11 @@ def ingest_document_task(self, document_id: str) -> dict:
         response = RagClient().ingest_document(
             document_id=str(document.id),
             user_id=str(document.user_id),
-            storage_key=document.storage_key,
+            filename=document.original_filename or document.filename,
+            file_url=document.cloudinary_secure_url or None,
+            storage_key=document.cloudinary_secure_url or document.storage_key,
             file_type=document.file_type,
+            mime_type=mimetypes.guess_type(document.original_filename or document.filename)[0],
         )
     except RagServiceError as exc:
         document.status = DocumentStatus.FAILED

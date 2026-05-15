@@ -7,7 +7,7 @@ from app.core.settings import settings
 from app.rag.generation import build_grounded_answer
 from app.rag.service import RagService
 from app.rag.retrieval import StoredChunk, rank_chunks
-from app.schemas import AskRequest
+from app.schemas import AskRequest, IngestRequest
 
 
 def test_chunk_pages_preserves_page_metadata():
@@ -122,3 +122,51 @@ def test_ask_falls_back_to_available_chunks_when_threshold_filters_everything():
     assert response.status == "answered"
     assert "project synopsis" in response.answer
     assert response.citations[0].document_id == document_id
+
+
+def test_ingest_uses_remote_file_url_and_cleans_temp_file(monkeypatch, tmp_path):
+    user_id = uuid4()
+    document_id = uuid4()
+    temp_file = tmp_path / "remote.txt"
+    temp_file.write_text("Cloudinary text that should become one searchable chunk.")
+
+    class Repository:
+        def __init__(self):
+            self.chunk_count = 0
+
+        def mark_document_processing(self, document_id, user_id):
+            return None
+
+        def replace_document_chunks(self, *, document_id, user_id, chunks, embeddings):
+            self.chunk_count = len(chunks)
+            return len(chunks)
+
+        def mark_document_ready(self, document_id, user_id, chunk_count):
+            return None
+
+    class Cache:
+        def get_json(self, key):
+            return None
+
+        def set_json(self, key, value, ttl_seconds):
+            return None
+
+    repository = Repository()
+    monkeypatch.setattr("app.rag.service.download_remote_file", Mock(return_value=temp_file))
+
+    response = RagService(repository=repository, cache=Cache()).ingest_document(
+        IngestRequest(
+            document_id=document_id,
+            user_id=user_id,
+            filename="cloudinary-source.txt",
+            file_url="https://res.cloudinary.com/demo/raw/upload/file.txt",
+            storage_key="https://res.cloudinary.com/demo/raw/upload/file.txt",
+            file_type="txt",
+            mime_type="text/plain",
+        )
+    )
+
+    assert response.status == "ready"
+    assert response.chunk_count == 1
+    assert repository.chunk_count == 1
+    assert not temp_file.exists()

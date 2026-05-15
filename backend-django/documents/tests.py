@@ -46,6 +46,7 @@ class DocumentApiTests(TestCase):
         document = Document.objects.create(
             user=self.user,
             filename="source.txt",
+            original_filename="source.txt",
             file_type="txt",
             file=SimpleUploadedFile("source.txt", b"hello"),
             storage_key="documents/source.txt",
@@ -63,3 +64,8 @@ class DocumentApiTests(TestCase):
         self.assertEqual(result["status"], "ready")
         self.assertEqual(document.status, "ready")
         self.assertEqual(document.chunk_count, 2)
+        ingest_document.assert_called_once()
+        payload = ingest_document.call_args.kwargs
+        self.assertEqual(payload["filename"], "source.txt")
+        self.assertEqual(payload["storage_key"], "documents/source.txt")
+        self.assertIsNone(payload["file_url"])
