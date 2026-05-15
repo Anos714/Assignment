@@ -29,6 +29,7 @@ def download_remote_file(file_url: str, *, filename: str | None = None) -> Path:
 
     temp_dir = Path("/tmp/documindai_ingest")
     temp_dir.mkdir(parents=True, exist_ok=True)
+
     suffix = _safe_suffix(filename) or _safe_suffix(Path(parsed_url.path).name)
 
     try:
@@ -36,25 +37,42 @@ def download_remote_file(file_url: str, *, filename: str | None = None) -> Path:
             response = client.get(file_url)
 
         if response.status_code != 200:
-            raise ExtractionError(f"Could not download document: HTTP {response.status_code}")
+            raise ExtractionError(
+                f"Could not download document: HTTP {response.status_code}"
+            )
 
         content = response.content
-        if len(content) > settings.max_document_upload_bytes:
-            raise ExtractionError("Downloaded file exceeds the maximum upload size")
 
-        with NamedTemporaryFile(delete=False, dir=temp_dir, suffix=suffix) as temp_file:
+        if len(content) > settings.max_document_upload_bytes:
+            raise ExtractionError(
+                "Downloaded file exceeds the maximum upload size"
+            )
+
+        with NamedTemporaryFile(
+            delete=False,
+            dir=temp_dir,
+            suffix=suffix,
+        ) as temp_file:
             temp_path = Path(temp_file.name)
             temp_file.write(content)
 
         return temp_path
+
     except ExtractionError:
         raise
+
     except httpx.HTTPError as exc:
-        raise ExtractionError(f"Could not download document: {exc}") from exc
+        raise ExtractionError(
+            f"Could not download document: {exc}"
+        ) from exc
+
     except OSError as exc:
         if "temp_path" in locals():
             temp_path.unlink(missing_ok=True)
-        raise ExtractionError(f"Could not save downloaded document: {exc}") from exc
+
+        raise ExtractionError(
+            f"Could not save downloaded document: {exc}"
+        ) from exc
 
 
 def _safe_suffix(filename: str | None) -> str:
