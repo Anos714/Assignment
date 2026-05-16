@@ -1,6 +1,7 @@
 import type { ChangeEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import type { KnowledgeDocument } from "../api";
+import { MAX_DOCUMENT_UPLOAD_BYTES } from "../api/client";
 import { DocumentRow } from "./DocumentRow";
 
 type DocumentsPanelProps = {
@@ -12,6 +13,7 @@ type DocumentsPanelProps = {
   onDeleteDocument: (documentId: string) => void;
   onToggleDocument: (documentId: string) => void;
   onUploadDocument: (file: File) => void;
+  uploadProgress?: number;
 };
 
 export function DocumentsPanel({
@@ -23,6 +25,7 @@ export function DocumentsPanel({
   selectedDocumentIds,
   onToggleDocument,
   onUploadDocument,
+  uploadProgress = 0,
 }: DocumentsPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -35,6 +38,10 @@ export function DocumentsPanel({
     }
     if (!isAcceptedFile(file)) {
       setUploadError("Please upload a PDF, DOCX, or TXT file.");
+      return;
+    }
+    if (file.size > MAX_DOCUMENT_UPLOAD_BYTES) {
+      setUploadError("File is too large. Upload a PDF, DOCX, or TXT file up to 25 MB.");
       return;
     }
     setUploadError("");
@@ -79,7 +86,7 @@ export function DocumentsPanel({
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
-          {isUploading ? "Uploading" : "Upload"}
+          {isUploading ? `${uploadProgress}%` : "Upload"}
         </button>
       </div>
 
@@ -111,8 +118,16 @@ export function DocumentsPanel({
         </span>
         <span className="grid gap-1">
           <strong>{isUploading ? "Uploading document..." : isDragging ? "Release to upload" : "Drop files here"}</strong>
-          <span>Click this box or drag a PDF, DOCX, or TXT file to start ingestion.</span>
+          <span>Click this box or drag a PDF, DOCX, or TXT file up to 25 MB.</span>
         </span>
+        {isUploading && (
+          <span className="upload-progress" aria-label={`Upload ${uploadProgress}% complete`}>
+            <span className="upload-progress-track">
+              <span className="upload-progress-bar" style={{ width: `${uploadProgress}%` }} />
+            </span>
+            <span className="upload-progress-label">{uploadProgress}%</span>
+          </span>
+        )}
       </button>
       {uploadError && <p className="form-error mt-3">{uploadError}</p>}
 

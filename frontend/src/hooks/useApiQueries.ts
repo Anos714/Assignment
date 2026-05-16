@@ -124,7 +124,8 @@ export function useAskQuestionMutation(chatId: string | null) {
 export function useUploadDocumentMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => api.uploadDocument(file),
+    mutationFn: (payload: { file: File; onProgress?: (progress: number) => void }) =>
+      api.uploadDocument(payload.file, payload.onProgress),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.documents });
       void queryClient.invalidateQueries({ queryKey: queryKeys.stats });

@@ -42,7 +42,7 @@ class DocumentUploadSerializer(serializers.ModelSerializer):
         if extension not in ALLOWED_EXTENSIONS:
             raise serializers.ValidationError("Only PDF, DOCX, and TXT files are supported.")
         if uploaded_file.size > settings.MAX_DOCUMENT_UPLOAD_BYTES:
-            raise serializers.ValidationError("File exceeds the maximum upload size.")
+            raise serializers.ValidationError("File exceeds the maximum upload size of 25 MB.")
         return uploaded_file
 
     def create(self, validated_data):

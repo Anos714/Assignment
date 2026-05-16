@@ -29,6 +29,17 @@ class DocumentApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("file", response.data)
 
+    @override_settings(MAX_DOCUMENT_UPLOAD_BYTES=4)
+    def test_upload_rejects_file_above_size_limit(self):
+        response = self.client.post(
+            "/api/documents/",
+            {"file": SimpleUploadedFile("large.txt", b"hello")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["file"][0], "File exceeds the maximum upload size of 25 MB.")
+
     def test_upload_creates_queued_document(self):
         response = self.client.post(
             "/api/documents/",

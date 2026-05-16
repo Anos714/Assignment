@@ -30,6 +30,7 @@ export function DashboardPage() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
   const activeChatId = useAppStore((state) => state.activeChatId);
   const clearSession = useAppStore((state) => state.clearSession);
   const questionDraft = useAppStore((state) => state.questionDraft);
@@ -123,6 +124,18 @@ export function DashboardPage() {
     }
   }
 
+  async function handleUploadDocument(file: File) {
+    setUploadProgress(0);
+    try {
+      await uploadDocumentMutation.mutateAsync({
+        file,
+        onProgress: setUploadProgress,
+      });
+    } finally {
+      window.setTimeout(() => setUploadProgress(0), 650);
+    }
+  }
+
   return (
     <main className={isSidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
       <Sidebar
@@ -173,7 +186,8 @@ export function DashboardPage() {
             isUploading={uploadDocumentMutation.isPending}
             onDeleteDocument={(documentId) => deleteDocumentMutation.mutate(documentId)}
             onToggleDocument={toggleDocument}
-            onUploadDocument={(file) => uploadDocumentMutation.mutate(file)}
+            onUploadDocument={handleUploadDocument}
+            uploadProgress={uploadProgress}
             selectedDocumentIds={scopedDocumentIds}
           />
         </section>
