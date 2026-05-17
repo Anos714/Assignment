@@ -1,9 +1,19 @@
 from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import Client, SimpleTestCase
 
 from core.rag_client import RagClient, RagServiceError
+
+
+class HealthCheckTests(SimpleTestCase):
+    def test_health_endpoint_returns_ok_without_authentication(self):
+        for path in ("/health", "/health/"):
+            with self.subTest(path=path):
+                response = Client().get(path)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), {"status": "ok"})
 
 
 class RagClientRetryTests(SimpleTestCase):
